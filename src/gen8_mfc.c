@@ -1019,7 +1019,8 @@ gen8_mfc_avc_pipeline_slice_programing(VADriverContextP ctx,
     struct gen6_vme_context *vme_context = encoder_context->vme_context;
     VAEncSequenceParameterBufferH264 *pSequenceParameter = (VAEncSequenceParameterBufferH264 *)encode_state->seq_param_ext->buffer;
     VAEncPictureParameterBufferH264 *pPicParameter = (VAEncPictureParameterBufferH264 *)encode_state->pic_param_ext->buffer;
-    VAEncSliceParameterBufferH264 *pSliceParameter = (VAEncSliceParameterBufferH264 *)encode_state->slice_params_ext[slice_index]->buffer; 
+    VAEncSliceParameterBufferH264 *pSliceParameter = (VAEncSliceParameterBufferH264 *)encode_state->slice_params_ext[slice_index]->buffer;
+    VAEncPackedHeaderParameterBuffer *param = NULL;
     unsigned int *msg = NULL, offset = 0;
     unsigned char *msg_ptr = NULL;
     int width_in_mbs = (mfc_context->surface_state.width + 15) / 16;
@@ -1033,7 +1034,7 @@ gen8_mfc_avc_pipeline_slice_programing(VADriverContextP ctx,
     unsigned int tail_data[] = { 0x0, 0x0 };
     int slice_type = intel_avc_enc_slice_type_fixup(pSliceParameter->slice_type);
     int is_intra = slice_type == SLICE_TYPE_I;
-
+    int idx, has_packed_slice = 0;
 
     if (rate_control_mode == VA_RC_CBR) {
         qp = mfc_context->bit_rate_control_context[slice_type].QpPrimeY;
@@ -1055,7 +1056,16 @@ gen8_mfc_avc_pipeline_slice_programing(VADriverContextP ctx,
     if ( slice_index == 0) 
         intel_mfc_avc_pipeline_header_programing(ctx, encode_state, encoder_context, slice_batch);
 
-    slice_header_length_in_bits = build_avc_slice_header(pSequenceParameter, pPicParameter, pSliceParameter, &slice_header);
+    idx = va_enc_packed_type_to_idx(VAEncPackedHeaderH264_Slice);
+    idx += slice_index;
+    if (encode_state->packed_header_data[idx]) {
+        slice_header = (unsigned char *)encode_state->packed_header_data[idx]->buffer;
+        param = (VAEncPackedHeaderParameterBuffer *)encode_state->packed_header_param[idx]->buffer;
+        slice_header_length_in_bits = param->bit_length;
+        has_packed_slice = 1;
+    }
+    else
+        slice_header_length_in_bits = build_avc_slice_header(pSequenceParameter, pPicParameter, pSliceParameter, &slice_header);
 
     // slice hander
     mfc_context->insert_object(ctx, encoder_context,
@@ -1108,8 +1118,8 @@ gen8_mfc_avc_pipeline_slice_programing(VADriverContextP ctx,
                                    1, 1, 1, 0, slice_batch);
     }
 
-    free(slice_header);
-
+    if (!has_packed_slice && slice_header)
+      free(slice_header);
 }
 
 static dri_bo *
@@ -1402,6 +1412,7 @@ gen8_mfc_avc_batchbuffer_slice(VADriverContextP ctx,
     VAEncSequenceParameterBufferH264 *pSequenceParameter = (VAEncSequenceParameterBufferH264 *)encode_state->seq_param_ext->buffer;
     VAEncPictureParameterBufferH264 *pPicParameter = (VAEncPictureParameterBufferH264 *)encode_state->pic_param_ext->buffer;
     VAEncSliceParameterBufferH264 *pSliceParameter = (VAEncSliceParameterBufferH264 *)encode_state->slice_params_ext[slice_index]->buffer; 
+    VAEncPackedHeaderParameterBuffer *param = NULL;
     int width_in_mbs = (mfc_context->surface_state.width + 15) / 16;
     int height_in_mbs = (mfc_context->surface_state.height + 15) / 16;
     int last_slice = (pSliceParameter->macroblock_address + pSliceParameter->num_macroblocks) == (width_in_mbs * height_in_mbs);
@@ -1414,6 +1425,7 @@ gen8_mfc_avc_batchbuffer_slice(VADriverContextP ctx,
     int old_used = intel_batchbuffer_used_size(slice_batch), used;
     unsigned short head_size, tail_size;
     int slice_type = intel_avc_enc_slice_type_fixup(pSliceParameter->slice_type);
+    int idx, has_packed_slice = 0;
 
     if (rate_control_mode == VA_RC_CBR) {
         qp = mfc_context->bit_rate_control_context[slice_type].QpPrimeY;
@@ -1439,7 +1451,16 @@ gen8_mfc_avc_batchbuffer_slice(VADriverContextP ctx,
     if (slice_index == 0)
         intel_mfc_avc_pipeline_header_programing(ctx, encode_state, encoder_context, slice_batch);
 
-    slice_header_length_in_bits = build_avc_slice_header(pSequenceParameter, pPicParameter, pSliceParameter, &slice_header);
+    idx = va_enc_packed_type_to_idx(VAEncPackedHeaderH264_Slice);
+    idx += slice_index;
+    if (encode_state->packed_header_data[idx]) {
+        slice_header = (unsigned char *)encode_state->packed_header_data[idx]->buffer;
+        param = (VAEncPackedHeaderParameterBuffer *)encode_state->packed_header_param[idx]->buffer;
+        slice_header_length_in_bits = param->bit_length;
+        has_packed_slice = 1;
+    }
+    else
+        slice_header_length_in_bits = build_avc_slice_header(pSequenceParameter, pPicParameter, pSliceParameter, &slice_header);
 
     // slice hander
     mfc_context->insert_object(ctx,
@@ -1452,7 +1473,8 @@ gen8_mfc_avc_batchbuffer_slice(VADriverContextP ctx,
                                0,
                                1,
                                slice_batch);
-    free(slice_header);
+    if (!has_packed_slice && slice_header)
+        free(slice_header);
 
     intel_batchbuffer_align(slice_batch, 16); /* aligned by an Oword */
     used = intel_batchbuffer_used_size(slice_batch);

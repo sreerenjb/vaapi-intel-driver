@@ -134,12 +134,13 @@ struct encode_state
     /* for ext */
     struct buffer_store *seq_param_ext;
     struct buffer_store *pic_param_ext;
-    struct buffer_store *packed_header_param[4];
-    struct buffer_store *packed_header_data[4];
+    struct buffer_store *packed_header_param[3 + NUM_SLICES];
+    struct buffer_store *packed_header_data[3 + NUM_SLICES];
     struct buffer_store **slice_params_ext;
     int max_slice_params_ext;
     int num_slice_params_ext;
     int last_packed_header_type;
+    int slice_cur_index;
 
     struct buffer_store *misc_param[16];
 

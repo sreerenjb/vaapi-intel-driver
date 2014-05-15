@@ -361,7 +361,7 @@ static struct hw_codec_info gen8_hw_codec_info = {
 };
 
 #define I965_PACKED_HEADER_BASE         0
-#define I965_PACKED_MISC_HEADER_BASE    3
+#define I965_PACKED_MISC_HEADER_BASE    12
 
 int
 va_enc_packed_type_to_idx(int packed_type)
@@ -396,7 +396,7 @@ va_enc_packed_type_to_idx(int packed_type)
         }
     }
 
-    ASSERT_RET(idx < 4, 0);
+    ASSERT_RET(idx < 13, 0);
     return idx;
 }
 
@@ -541,7 +541,7 @@ i965_GetConfigAttributes(VADriverContextP ctx,
 
         case VAConfigAttribEncPackedHeaders:
             if (entrypoint == VAEntrypointEncSlice) {
-                attrib_list[i].value = VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE | VA_ENC_PACKED_HEADER_MISC;
+                attrib_list[i].value = VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE | VA_ENC_PACKED_HEADER_SLICE | VA_ENC_PACKED_HEADER_MISC;
                 break;
             }
 
@@ -2307,9 +2307,13 @@ i965_encoder_render_picture(VADriverContextP ctx,
 
     for (i = 0; i < num_buffers; i++) {  
         struct object_buffer *obj_buffer = BUFFER(buffers[i]);
+        struct encode_state *enc_state = &obj_context->codec_state.encode;
 
         if (!obj_buffer)
             return VA_STATUS_ERROR_INVALID_BUFFER;
+
+	if (obj_buffer->type == VAEncPictureParameterBufferType)
+	  enc_state->slice_cur_index = 0;
 
         switch (obj_buffer->type) {
         case VAQMatrixBufferType:
@@ -2335,30 +2339,38 @@ i965_encoder_render_picture(VADriverContextP ctx,
         case VAEncPackedHeaderParameterBufferType:
         {
             struct encode_state *encode = &obj_context->codec_state.encode;
+	    int idx = 0;
             VAEncPackedHeaderParameterBuffer *param = (VAEncPackedHeaderParameterBuffer *)obj_buffer->buffer_store->buffer;
+	    idx = va_enc_packed_type_to_idx(param->type);
+	    if (param->type == VAEncPackedHeaderSlice)
+		idx += encode->slice_cur_index++;
+	    else
+		encode->slice_cur_index = 0;
             encode->last_packed_header_type = param->type;
-
             vaStatus = i965_encoder_render_packed_header_parameter_buffer(ctx,
                                                                           obj_context,
                                                                           obj_buffer,
-                                                                          va_enc_packed_type_to_idx(encode->last_packed_header_type));
+                                                                          idx);
             break;
         }
 
         case VAEncPackedHeaderDataBufferType:
         {
             struct encode_state *encode = &obj_context->codec_state.encode;
-
+	    int idx = 0;
             ASSERT_RET(encode->last_packed_header_type == VAEncPackedHeaderSequence ||
                    encode->last_packed_header_type == VAEncPackedHeaderPicture ||
                    encode->last_packed_header_type == VAEncPackedHeaderSlice ||
                    (((encode->last_packed_header_type & VAEncPackedHeaderMiscMask) == VAEncPackedHeaderMiscMask) &&
                     ((encode->last_packed_header_type & (~VAEncPackedHeaderMiscMask)) != 0)),
                     VA_STATUS_ERROR_ENCODING_ERROR);
+	    idx = va_enc_packed_type_to_idx(encode->last_packed_header_type);
+	    if (encode->last_packed_header_type == VAEncPackedHeaderSlice)
+		idx += encode->slice_cur_index - 1;
             vaStatus = i965_encoder_render_packed_header_data_buffer(ctx, 
                                                                      obj_context,
                                                                      obj_buffer,
-                                                                     va_enc_packed_type_to_idx(encode->last_packed_header_type));
+                                                                     idx);
             break;       
         }
 
