@@ -361,7 +361,7 @@ static struct hw_codec_info gen8_hw_codec_info = {
 };
 
 #define I965_PACKED_HEADER_BASE         0
-#define I965_PACKED_MISC_HEADER_BASE    12
+#define I965_PACKED_MISC_HEADER_BASE    22
 
 int
 va_enc_packed_type_to_idx(int packed_type)
@@ -389,6 +389,10 @@ va_enc_packed_type_to_idx(int packed_type)
             idx = I965_PACKED_HEADER_BASE + 2;
             break;
 
+        case VAEncPackedHeaderRawData:
+            idx = I965_PACKED_HEADER_BASE + 12;
+            break;
+
         default:
             /* Should not get here */
             ASSERT_RET(0, 0);
@@ -396,7 +400,7 @@ va_enc_packed_type_to_idx(int packed_type)
         }
     }
 
-    ASSERT_RET(idx < 13, 0);
+    ASSERT_RET(idx < 23, 0);
     return idx;
 }
 
@@ -541,7 +545,7 @@ i965_GetConfigAttributes(VADriverContextP ctx,
 
         case VAConfigAttribEncPackedHeaders:
             if (entrypoint == VAEntrypointEncSlice) {
-                attrib_list[i].value = VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE | VA_ENC_PACKED_HEADER_SLICE | VA_ENC_PACKED_HEADER_MISC;
+                attrib_list[i].value = VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE | VA_ENC_PACKED_HEADER_SLICE | VA_ENC_PACKED_HEADER_RAW_DATA | VA_ENC_PACKED_HEADER_MISC;
                 break;
             }
 
@@ -2312,8 +2316,10 @@ i965_encoder_render_picture(VADriverContextP ctx,
         if (!obj_buffer)
             return VA_STATUS_ERROR_INVALID_BUFFER;
 
-	if (obj_buffer->type == VAEncPictureParameterBufferType)
-	  enc_state->slice_cur_index = 0;
+	if (obj_buffer->type == VAEncPictureParameterBufferType) {
+	    enc_state->slice_cur_index = 0;
+	    enc_state->raw_data_cur_index = 0;
+	}
 
         switch (obj_buffer->type) {
         case VAQMatrixBufferType:
@@ -2344,8 +2350,9 @@ i965_encoder_render_picture(VADriverContextP ctx,
 	    idx = va_enc_packed_type_to_idx(param->type);
 	    if (param->type == VAEncPackedHeaderSlice)
 		idx += encode->slice_cur_index++;
-	    else
-		encode->slice_cur_index = 0;
+	    else if (param->type == VAEncPackedHeaderRawData)
+		idx += encode->raw_data_cur_index++;
+
             encode->last_packed_header_type = param->type;
             vaStatus = i965_encoder_render_packed_header_parameter_buffer(ctx,
                                                                           obj_context,
@@ -2361,12 +2368,15 @@ i965_encoder_render_picture(VADriverContextP ctx,
             ASSERT_RET(encode->last_packed_header_type == VAEncPackedHeaderSequence ||
                    encode->last_packed_header_type == VAEncPackedHeaderPicture ||
                    encode->last_packed_header_type == VAEncPackedHeaderSlice ||
+                   encode->last_packed_header_type == VAEncPackedHeaderRawData ||
                    (((encode->last_packed_header_type & VAEncPackedHeaderMiscMask) == VAEncPackedHeaderMiscMask) &&
                     ((encode->last_packed_header_type & (~VAEncPackedHeaderMiscMask)) != 0)),
                     VA_STATUS_ERROR_ENCODING_ERROR);
 	    idx = va_enc_packed_type_to_idx(encode->last_packed_header_type);
 	    if (encode->last_packed_header_type == VAEncPackedHeaderSlice)
 		idx += encode->slice_cur_index - 1;
+	    if (encode->last_packed_header_type == VAEncPackedHeaderRawData)
+		idx += encode->raw_data_cur_index - 1;
             vaStatus = i965_encoder_render_packed_header_data_buffer(ctx, 
                                                                      obj_context,
                                                                      obj_buffer,

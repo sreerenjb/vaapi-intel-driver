@@ -1056,6 +1056,23 @@ gen8_mfc_avc_pipeline_slice_programing(VADriverContextP ctx,
     if ( slice_index == 0) 
         intel_mfc_avc_pipeline_header_programing(ctx, encode_state, encoder_context, slice_batch);
 
+    idx = va_enc_packed_type_to_idx(VAEncPackedHeaderRawData);
+    idx += slice_index;
+    if (encode_state->packed_header_data[idx]) {
+        unsigned char *raw_data = NULL;
+        int raw_data_length = 0;
+        raw_data  = (unsigned char *)encode_state->packed_header_data[idx]->buffer;
+        param = (VAEncPackedHeaderParameterBuffer *)encode_state->packed_header_param[idx]->buffer;
+        raw_data_length = param->bit_length;
+        // raw_data hander, eg: prefix_nal in mvc
+        mfc_context->insert_object(ctx,
+                                   encoder_context,
+                                   (unsigned int *)raw_data,
+                                   ALIGN(raw_data_length, 32) >> 5,
+                                   raw_data_length & 0x1f,
+                                   8,
+                                   0, 0, 1, slice_batch);
+    }
     idx = va_enc_packed_type_to_idx(VAEncPackedHeaderH264_Slice);
     idx += slice_index;
     if (encode_state->packed_header_data[idx]) {
@@ -1450,6 +1467,24 @@ gen8_mfc_avc_batchbuffer_slice(VADriverContextP ctx,
 
     if (slice_index == 0)
         intel_mfc_avc_pipeline_header_programing(ctx, encode_state, encoder_context, slice_batch);
+
+    idx = va_enc_packed_type_to_idx(VAEncPackedHeaderRawData);
+    idx += slice_index;
+    if (encode_state->packed_header_data[idx]) {
+        unsigned char *raw_data = NULL;
+        int raw_data_length = 0;
+        raw_data  = (unsigned char *)encode_state->packed_header_data[idx]->buffer;
+        param = (VAEncPackedHeaderParameterBuffer *)encode_state->packed_header_param[idx]->buffer;
+        raw_data_length = param->bit_length;
+        // raw_data hander, eg: prefix_nal in mvc
+        mfc_context->insert_object(ctx,
+                                   encoder_context,
+                                   (unsigned int *)raw_data,
+                                   ALIGN(raw_data_length, 32) >> 5,
+                                   raw_data_length & 0x1f,
+                                   8,
+                                   0, 0, 1, slice_batch);
+    }
 
     idx = va_enc_packed_type_to_idx(VAEncPackedHeaderH264_Slice);
     idx += slice_index;
